@@ -1,0 +1,63 @@
+name: teppi-check
+description: Check a paid endpoint's 402 against the x402 spec and the official SDK, with no payment.
+author: Teppi
+branding:
+  icon: check-circle
+  color: green
+
+inputs:
+  urls:
+    description: Endpoints to check, one per line.
+    required: true
+  method:
+    description: GET or POST. Left empty, it tries GET then POST.
+    required: false
+    default: ''
+  body:
+    description: JSON body sent with a POST.
+    required: false
+    default: '{}'
+  strict:
+    description: Fail the job when the terms break the x402 spec, not only when the endpoint is broken.
+    required: false
+    default: 'true'
+  try-unfunded:
+    description: Also send one payment signed by an empty wallet and check the endpoint refuses it.
+    required: false
+    default: 'false'
+  version:
+    description: teppi-check version to run from npm.
+    required: false
+    default: '0.5.0'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - shell: bash
+      env:
+        URLS: ${{ inputs.urls }}
+        METHOD: ${{ inputs.method }}
+        BODY: ${{ inputs.body }}
+        STRICT: ${{ inputs.strict }}
+        TRY_UNFUNDED: ${{ inputs.try-unfunded }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -uo pipefail
+        status=0
+        while IFS= read -r url; do
+          url="$(echo "$url" | xargs)"
+          [ -z "$url" ] && continue
+          args=(--spec --markdown --body "$BODY")
+          [ -n "$METHOD" ] && args+=(--method "$METHOD")
+          [ "$STRICT" = "true" ] && args+=(--strict)
+          [ "$TRY_UNFUNDED" = "true" ] && args+=(--try-unfunded)
+          out="$(npx -y "teppi-check@${VERSION}" "$url" "${args[@]}")"
+          code=$?
+          echo "$out"
+          echo "$out" >> "$GITHUB_STEP_SUMMARY"
+          [ "$code" -gt "$status" ] && status=$code
+        done <<< "$URLS"
+        exit "$status"
